@@ -9,6 +9,7 @@ from fastapi import(
     HTTPException,
     Depends,
     Request,
+    Header,
     File,
     UploadFile,
     )
@@ -18,11 +19,14 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseSettings
 
 class Settings(BaseSettings):
+    app_auth_token: str = "SdkzO17AM4R5nWBqqMdeNmLKw96qVzY4RDQMhB3HTPc"
     debug: bool = False
     echo_active: bool = False
+    app_auth_token_prod: str = "6b1Jcndo7Fl9fHI7V7u4u3SHCWm6wCltwgSfjbwB7rU"
+    skip_auth: bool = False
 
-    class Config:
-        env_file = ".env"
+class Config:
+    env_file = ".env"
 
 @lru_cache
 def get_settings():
@@ -42,12 +46,27 @@ def home_view(request: Request, settings:Settings = Depends(get_settings)):
     return templates.TemplateResponse("home.html", {"request": request, "abc": 123})
 
 
+def verify_auth(authorization = Header(None), settings:Settings = Depends(get_settings)):
+    """
+    Authorization: Bearer <token>
+    {"authorization": "Bearer <token>"}
+    """
+    if settings.debug and settings.skip_auth:
+        return
+    if authorization is None:
+        raise HTTPException(detail="Invalid endpoint", status_code=401)
+    label, token = authorization.split()
+    if token != settings.app_auth_token:
+        raise HTTPException(detail="Invalid endpoint", status_code=401)
+
 @app.post("/") # http POST
-async def prediction_view(file:UploadFile = File(...), settings:Settings = Depends(get_settings)):
+async def prediction_view(file:UploadFile = File(...), authorization = Header(None), settings:Settings = Depends(get_settings)):
+    verify_auth(authorization, settings)
     bytes_str = io.BytesIO(await file.read())
     try:
         img = Image.open(bytes_str)
     except:
+
         raise HTTPException(detail="Invalid image", status_code=400)
     preds = pytesseract.image_to_string(img)
     predictions = [x for x in preds.split("\n")]
